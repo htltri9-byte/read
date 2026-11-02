@@ -8,9 +8,11 @@ truyện chỉ hiện công khai sau khi được duyệt. Dịch Trung → Vi�
 
 **Trạng thái (11/2026):** backend và app **chạy thật trên máy phát triển** — đã dựng database SQL Server, chạy
 `uvicorn` + Swagger, build APK và chạy test thành công (xem [Kiểm thử](#kiểm-thử)). Luồng đăng truyện → gửi duyệt →
-Admin duyệt/từ chối, nhập truyện từ link, dịch từ điển và kiểm quyền đều chạy thật. **Chưa** deploy chính thức (chưa
-có CI/Docker, backend mặc định chỉ nghe `127.0.0.1`), **chưa** có logic quét nội dung tự động (cột `ScanStatus` đã có
-trong schema nhưng chưa ai ghi), và nguồn nhập mới chỉ có **Qidian** + nguồn demo.
+Admin duyệt/từ chối, nhập truyện từ link, dịch từ điển và kiểm quyền đều chạy thật. Backend đưa ra Internet được bằng
+**Cloudflare Tunnel** (URL tạm `*.trycloudflare.com` — xem [đưa backend ra Internet](#đưa-backend-ra-internet--cloudflare-tunnel)),
+nhưng **chưa** deploy chính thức (chưa có CI/Docker, chưa có tên miền cố định, backend mặc định chỉ nghe `127.0.0.1`),
+**chưa** có logic quét nội dung tự động (cột `ScanStatus` đã có trong schema nhưng chưa ai ghi), và nguồn nhập mới chỉ
+có **Qidian** + nguồn demo.
 
 ## Ảnh chụp màn hình
 
@@ -51,7 +53,7 @@ trong schema nhưng chưa ai ghi), và nguồn nhập mới chỉ có **Qidian**
 ```
    App Flutter (Android) — lib/
    screens · services · widgets
-   SQLite + shared_prefs  (dữ liệu ngoại tuyến)   │  REST/JSON · JWT Bearer · API_BASE_URL (10.0.2.2 / IP LAN / adb reverse)
+   SQLite + shared_prefs  (dữ liệu ngoại tuyến)   │  REST/JSON · JWT Bearer · API_BASE_URL (10.0.2.2 / IP LAN / adb reverse / tunnel)
                ▼
    FastAPI — backend/app   (uvicorn, cổng 8000)
    ├── routers/ (53 route)  →  services/  →  SQLAlchemy
@@ -157,8 +159,25 @@ flutter run                 # thêm --dart-define=API_BASE_URL=... như mục 6
 | Emulator Android (mặc định) | `http://10.0.2.2:8000` |
 | Máy thật, cùng mạng WiFi | IP LAN của máy chạy backend, ví dụ `http://192.168.1.10:8000` |
 | Máy thật, cáp USB | `adb reverse tcp:8000 tcp:8000` rồi đặt `http://127.0.0.1:8000` |
+| Máy thật, qua Internet | URL tunnel `https://<tên>.trycloudflare.com` (xem dưới) |
 
-Ghi đè bằng `flutter run --dart-define=API_BASE_URL=...` ([api_config.dart](lib/services/api_config.dart)) · chi tiết máy thật, tunnel, bảo mật: [docs/DEPLOY.md](docs/DEPLOY.md).
+Ghi đè bằng `flutter run --dart-define=API_BASE_URL=...` ([api_config.dart](lib/services/api_config.dart)) · chi tiết máy thật, bảo mật: [docs/DEPLOY.md](docs/DEPLOY.md).
+
+### Đưa backend ra Internet — Cloudflare Tunnel
+
+Không mở port router, không cần IP tĩnh (chi tiết: [docs/DEPLOY.md](docs/DEPLOY.md) mục 4):
+
+```powershell
+# cài một lần: winget install Cloudflare.cloudflared
+cloudflared tunnel --url http://localhost:8000     # backend vẫn chạy 127.0.0.1:8000 như bình thường
+```
+
+Log sẽ in URL dạng `https://xxx-yyy.trycloudflare.com` — dùng đúng URL đó làm `API_BASE_URL` khi build app. Tunnel có
+HTTPS sẵn nên thỏa yêu cầu Android về `http://`.
+
+> **Lưu ý:** URL của tunnel tạm **đổi mỗi lần chạy lại lệnh** — APK build bằng URL cũ sẽ gọi không được nữa nên phải lấy
+> URL mới rồi build lại. Tunnel không có uptime guarantee, chỉ để demo/test; muốn domain cố định thì
+> `cloudflared tunnel create vietread` + `cloudflared tunnel route dns vietread example.com` rồi cấu hình `config.yml`.
 
 **7. Tài khoản thử nghiệm** — do `backend/database/seed.sql` tạo, **mật khẩu nằm trong file seed** (chỉ cho phát triển):
 
@@ -168,7 +187,17 @@ Ghi đè bằng `flutter run --dart-define=API_BASE_URL=...` ([api_config.dart](
 | `docgia@vietread.vn` | độc giả (theo dõi + bình luận) |
 | `admin@vietread.vn` | **admin** kiểm duyệt |
 
-Tạo admin thật bằng `backend/tools/create_admin.py` và **đổi mật khẩu mẫu** trước khi mở backend ra internet.
+Tạo admin thật bằng `backend/tools/create_admin.py` và **đổi mật khẩu mẫu** trước khi mở backend ra internet. Lệnh
+nhận tham số **vị trí** (không phải cờ `--email`/`--password`):
+
+```powershell
+cd backend
+.venv\Scripts\python.exe tools/create_admin.py admin@vietread.vn '<MAT_KHAU_MANH>'
+```
+
+Chạy lại với email đã có sẽ **cập nhật** mật khẩu (và `role = admin`), không tạo trùng. Mật khẩu admin trên máy phát
+triển hiện **khác** mật khẩu trong `seed.sql` (đã đặt lại bằng lệnh trên) → `test_api.py` hardcode `VietRead@123` cho
+admin sẽ dừng ở bước đăng nhập, xem [Xử lý sự cố](#xử-lý-sự-cố).
 
 ## Cấu hình và bí mật
 
@@ -179,7 +208,7 @@ Tạo admin thật bằng `backend/tools/create_admin.py` và **đổi mật kh�
 | `DATABASE_URL` | Chuỗi nối SQL Server — 2 cách trong `.env.example` (Windows Authentication hoặc SQL Auth) |
 | `SECRET_KEY` · `ALGORITHM` | Chuỗi ký JWT (phải ngẫu nhiên) · thuật toán, mặc định `HS256` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Thời hạn token — mặc định `10080` (7 ngày) |
-| `CORS_ORIGINS` | Origin được phép gọi API, phân tách dấu phẩy — mặc định `*` |
+| `CORS_ORIGINS` | Origin được phép gọi API, phân tách dấu phẩy — mặc định `*`; máy này **vẫn đang đặt `*`** → phải đổi thành danh sách origin cụ thể trước để backend truy cập công khai |
 | `TRANSLATE_MODE` · `TRANSLATE_API_KEY` · `TRANSLATE_API_URL` | Chế độ dịch `dict`/`online`/`auto` + khoá/endpoint dự phòng (để trống vẫn chạy) |
 | `IMPORT_CHAPTER_DELAY` · `IMPORT_MAX_CHAPTERS` | Delay giữa các request nhập chương (giây) · giới hạn số chương mỗi job |
 | `MARK_LEVEL` · `LEARN_SKIP_THRESHOLD` | Mức marker `low`/`medium`/`high` · số lượt "Không hỏi lại" trước khi khoá (`<=0` = tắt) |
@@ -284,8 +313,9 @@ cd backend
 Linux/macOS: dùng `.venv/bin/python`. Windows chạy qua pipe bị `UnicodeEncodeError` thì thêm `PYTHONUTF8=1`.
 
 `test_api.py` **cần server đang chạy** và tài khoản đúng như seed. Lần chạy gần nhất: 36 kiểm tra đầu pass rồi **dừng ở
-bước đăng nhập `admin@vietread.vn`** — mật khẩu admin trên máy đã khác hash trong `seed.sql` (seed chỉ thêm khi email
-chưa có, chạy lại không ghi đè). Cách xử lý: xem mục [Xử lý sự cố](#xử-lý-sự-cố).
+bước đăng nhập `admin@vietread.vn`** — script hardcode mật khẩu `VietRead@123` cho admin, trong khi mật khẩu admin trên
+máy đã được đặt lại bằng `create_admin.py` (seed chỉ thêm khi email chưa có, chạy lại không ghi đè). Cách xử lý: xem
+mục [Xử lý sự cố](#xử-lý-sự-cố).
 
 ## Build APK
 
@@ -311,11 +341,11 @@ Kết quả: `build\app\outputs\flutter-apk\app-release.apk` — lần build th�
 | Kiểm duyệt | Trạng thái chỉ đổi theo `VALID_TRANSITIONS` trong `moderation.py`; sai → 409 |
 | Validate đầu vào | Pydantic `Field(min_length/max_length)` cho tên, email, mật khẩu (≥6), tiêu đề, `coverUrl` ≤500 |
 | Upload file | **Không có** endpoint nhận file — bìa/avatar là URL string |
-| CORS | `CORSMiddleware` với `CORS_ORIGINS` từ env (mặc định `*`) — bớt wildcard khi đưa ra internet |
+| CORS | `CORSMiddleware` với `CORS_ORIGINS` từ env — hiện vẫn là `*` trong `.env`, phải thu hẹp khi backend truy cập công khai ([docs/DEPLOY.md](docs/DEPLOY.md) mục 5) |
 
 ## Giới hạn hiện tại
 
-- **Chưa deploy chính thức:** chưa có CI/Docker, backend mặc định chỉ nghe `127.0.0.1`, chưa có tên miền.
+- **Chưa deploy chính thức:** chỉ đưa ra Internet bằng Cloudflare Tunnel tạm (`*.trycloudflare.com`, đổi URL mỗi lần chạy lại, không có uptime guarantee) — chưa có CI/Docker, backend mặc định chỉ nghe `127.0.0.1`, chưa có tên miền.
 - **Chỉ nhập từ Qidian** (kèm nguồn demo) — nguồn khác phải tự viết adapter trong `backend/app/services/scraper.py`.
 - **Chất lượng dịch là kiểu tra từ điển (convert):** phụ thuộc bộ `vietphrase.txt` (kèm trong repo); cụm không có trong từ điển sẽ rơi về **âm Hán-Việt từng chữ**, câu chưa tự nhiên như dịch máy.
 - **Cào có thể bị chặn:** Qidian chặn bot/IP (`HTTP 403`), chương trả phí VIP không lấy được → job `Failed`.
@@ -334,7 +364,7 @@ Kết quả: `build\app\outputs\flutter-apk\app-release.apk` — lần build th�
 | `Can't open lib 'ODBC Driver 18 for SQL Server'` | Chưa cài driver hoặc sai tên trong `DATABASE_URL` → cài [ODBC Driver 18](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server), kiểm tra `python -c "import pyodbc; print(pyodbc.drivers())"` |
 | Log `Thiếu vietphrase.txt — đang dịch CHỈ theo âm Hán-Việt từng chữ` | File bị xoá/đổi tên → `git checkout backend/dictionaries/vietphrase.txt`, xoá `_cache.pkl` rồi restart backend |
 | Nhập link Qidian báo `Failed` (nguồn chặn / chương trả phí VIP) | Đọc `Error` trong `GET /imports/{jobId}`; đổi sang chương thường, hoặc dùng nguồn demo `demo.vietread.local` để test luồng |
-| `test_api.py` dừng ở bước đăng nhập admin | Mật khẩu admin khác seed → trong SSMS: `UPDATE dbo.Users SET PasswordHash = <hash trong seed.sql> WHERE Email = N'admin@vietread.vn'`, hoặc xoá dòng admin rồi chạy lại `seed.sql` |
+| `test_api.py` dừng ở bước đăng nhập admin | Mật khẩu admin khác giá trị hardcode trong `test_api.py` → đặt lại bằng `.venv\Scripts\python.exe tools/create_admin.py admin@vietread.vn '<mật khẩu>'` (ghi đè hash, giữ `role = admin`), hoặc sửa cho khớp mật khẩu đang dùng. Chạy lại `seed.sql` **không** có tác dụng vì seed chỉ thêm khi email chưa tồn tại |
 | Đổi máy / cài lại app thì mất tiến độ đọc | Tiến độ, cài đặt và bản tải lưu **local** (shared_preferences + SQLite), không tự đồng bộ — phải đọc lại hoặc sao lưu thủ công |
 
 ## Tài liệu
